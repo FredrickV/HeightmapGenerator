@@ -200,6 +200,8 @@ bool HeightGenerator::generate(const unsigned int seed, const int resolution,
 		);
 		ilEnable(IL_FILE_OVERWRITE);
 		ilSave(IL_PNG, pngOutput.c_str());
+
+        ilDeleteImage(imageID);
 	}
 #endif
 	return !errors;
