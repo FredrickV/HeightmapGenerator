@@ -228,7 +228,7 @@ void HeightGenerator::generationHeight(const HeightGenerator::height_map_param_t
 		glm::vec2 position = (glm::vec2(x, y)) * hmp.scale;
 		n = Simplex::iqMatfBmEx(position, (uint8_t)hmp.octaves, glm::mat2(2.3f, -1.5f, 1.5f, 2.3f), hmp.gain) * 0.5f + 0.5f;
 
-		data[x + y*hmp.resolution] = (UInt16Type)(glm::clamp(double(n), 0.0, 1.0) * 65535.0);
+		data[x + y*hmp.resolution] = (UInt16Type)(glm::clamp(double(n), 0.0, 2.0) * 32767.5);
 	}
 }
 
