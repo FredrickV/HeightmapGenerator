@@ -67,6 +67,10 @@ public:
 		return m_generatedParam;
 	}
 
+    inline unsigned int generatedSeed() {
+        return m_generatedSeedUsed;
+    }
+
 	void freeGeneratedData();
 
 private:
@@ -95,6 +99,7 @@ private:
 	UInt16Type *m_generatedData;
 	int m_generatedPixels;
 	height_map_param_t m_generatedParam;
+    unsigned int m_generatedSeedUsed;
 };
 
 #endif

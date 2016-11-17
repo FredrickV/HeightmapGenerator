@@ -68,7 +68,7 @@ unsigned int HeightGenerator::GenSeed()
 	std::uniform_int_distribution<unsigned int> digit(0, UINT_MAX);	return digit(RandGen);
 }
 
-HeightGenerator::HeightGenerator() : m_generatedData(nullptr), m_generatedPixels(-1)
+HeightGenerator::HeightGenerator() : m_generatedData(nullptr), m_generatedPixels(-1), m_generatedSeedUsed(0)
 {
 #ifdef USE_DEVIL_LIBRARY
 #ifndef DEVIL_INIT_ELSEWHERE
@@ -93,6 +93,8 @@ bool HeightGenerator::generate(const unsigned int seed, const int resolution,
 							   const std::string &pngOutput)
 {
 	freeGeneratedData();
+
+    m_generatedSeedUsed = seed;
 	
 	height_map_param_t hmp(resolution, gain, octaves, scale);
 	m_generatedParam = hmp;
@@ -216,33 +218,24 @@ void HeightGenerator::freeGeneratedData()
 	}
 	m_generatedPixels = 0;
 	m_generatedParam = height_map_param_t();
+    m_generatedSeedUsed = 0;
 }
 
 void HeightGenerator::generationHeight(const HeightGenerator::height_map_param_t &hmp, UInt16Type *data, const std::vector<std::pair<const int, const int>> &workSet)
 {
 	for (const auto & i : workSet) {
-		const int x = i.first;
-		const int y = i.second;
+		glm::vec2 position = (glm::vec2(i.first, i.second)) * hmp.scale;
+        float n = Simplex::iqMatfBmEx(position, (uint8_t)hmp.octaves, glm::mat2(2.3f, -1.5f, 1.5f, 2.3f), hmp.gain);
+        n *= Simplex::ridgedMF(position * glm::vec2(0.75f), 0.95f, hmp.octaves, 1.5f, 0.33f);
+        n -= Simplex::worleyfBm(position, 12, 2.0f, hmp.gain);
 
-		float n = 0.0f;
-		glm::vec2 position = (glm::vec2(x, y)) * hmp.scale;
-		n = Simplex::iqMatfBmEx(position, (uint8_t)hmp.octaves, glm::mat2(2.3f, -1.5f, 1.5f, 2.3f), hmp.gain) * 0.5f + 0.5f;
-
-		data[x + y*hmp.resolution] = (UInt16Type)(glm::clamp(double(n), 0.0, 2.0) * 32767.5);
+        // World move "down" 0.30
+		data[i.first + i.second*hmp.resolution] = (UInt16Type)(glm::clamp(double(n* 0.5f + 0.20), 0.0, 1.0) * 65535.0);
 	}
 }
 
 void HeightGenerator::generationHeightMapMultiThread(HeightGenerator::thread_info *threadInfo, UInt16Type *data, const std::vector<std::pair<const int, const int>> &workSet)
 {
-	for (const auto & i : workSet) {
-		const int x = i.first;
-		const int y = i.second;
-
-		float n = 0.0f;
-		glm::vec2 position = (glm::vec2(x, y)) * threadInfo->params.scale;
-		n = Simplex::iqMatfBmEx(position, (uint8_t)threadInfo->params.octaves, glm::mat2(2.3f, -1.5f, 1.5f, 2.3f), threadInfo->params.gain) * 0.5f + 0.5f;
-
-		data[x + y*threadInfo->params.resolution] = (UInt16Type)(glm::clamp(double(n), 0.0, 2.0) * 32767.5);
-	}
+    generationHeight(threadInfo->params, data, workSet);
 	threadInfo->threadState = ThreadStateProcessingDone;
 }
