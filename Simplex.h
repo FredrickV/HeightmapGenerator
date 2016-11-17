@@ -2121,6 +2121,25 @@ float iqMatfBm( const glm::vec2 &v, uint8_t octaves, const glm::mat2 &mat, float
 	return sum;
 }
 
+float iqMatfBmEx(const glm::vec2 &v, uint8_t octaves, const glm::mat2 &mat, float gain)
+{
+    glm::vec2 pos = v;
+    const float lacunarity = 0.9;
+    float amp = 1.0;
+    glm::vec2 d = glm::vec2(0.0);
+    float sum = 0.0;
+    for (int i = 0; i < octaves; i++) {
+        glm::vec3 n = dnoise(pos);
+        d += glm::vec2(n.xy);
+        sum += n.z*amp / (1.0 + glm::dot(d, d));   // sum scaled by gradient
+        amp *= gain;
+        pos *= lacunarity;
+        pos = mat * pos;
+    }
+    return sum;
+}
+
+
 void seed( uint32_t s ) {
     std::random_device rd;
     std::mt19937 gen( rd() );
