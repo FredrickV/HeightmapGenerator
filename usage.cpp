@@ -1,12 +1,12 @@
-void LoadToGLTexture()
+void YourClass::LoadToGLTexture()
 {
-    /*
-       m_hg.generate(HeightGenerator::GenSeed(), 1024, 0.36f, 14, 0.00055f, "", "height_sample.png");
+    // Define in header: HeightGenerator m_hg;
+    m_hg.generate(HeightGenerator::GenSeed(), 1024, 0.36f, 14, 0.00055f, "", "height_sample.png");
     
-    */
+  
     
-    width = m_hg.generatedParam().resolution;
-    height = m_hg.generatedParam().resolution;
+    int width = m_hg.generatedParam().resolution;
+    int height = m_hg.generatedParam().resolution;
 
     glGenTextures(1, &m_heightMap);
     glBindTexture(GL_TEXTURE_2D, m_heightMap);
