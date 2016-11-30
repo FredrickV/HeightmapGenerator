@@ -71,6 +71,9 @@ public:
         return m_generatedSeedUsed;
     }
 
+    bool saveGeneratedData(const std::string &savePath);
+    bool loadGeneratedData(const std::string &loadPath);
+
 	void freeGeneratedData();
 
 private:
@@ -79,8 +82,9 @@ private:
 		thread_info(HeightGenerator *self,
 			UInt16Type *data,
 			const height_map_param_t paramsInp,
+            const uint32_t seedInp,
 			const std::vector<std::pair<const int, const int>> &workSet) :
-			params(paramsInp), threadState(ThreadStateProcessing),
+			params(paramsInp), seed(seedInp), threadState(ThreadStateProcessing),
 			thread(new std::thread(&HeightGenerator::generationHeightMapMultiThread, self, this, data, workSet)) { }
 		~thread_info() {
 			if (thread) {
@@ -88,12 +92,13 @@ private:
 			}
 		}
 		const height_map_param_t params;
+        const uint32_t seed;
 		std::atomic<ThreadState> threadState;
 
 		std::thread *thread;
 	};
 
-	void generationHeight(const height_map_param_t &hmp, UInt16Type *data, const std::vector<std::pair<const int, const int>> &workSet);
+	void generationHeight(const uint32_t seed, const height_map_param_t &hmp, UInt16Type *data, const std::vector<std::pair<const int, const int>> &workSet);
 	void generationHeightMapMultiThread(thread_info *threadInfo, UInt16Type *data, const std::vector<std::pair<const int, const int>> &workSet);
 
 	UInt16Type *m_generatedData;

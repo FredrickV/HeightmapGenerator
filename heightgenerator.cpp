@@ -19,6 +19,10 @@
 #include <climits>
 #include <random>
 
+
+static const unsigned char HEIGHT_DATA_FILE_VERSION = 1;
+static const char HEIGHT_DATA_FILE_MAGIC[3] = { 'H','D','F' };
+
 //#define USE_DEVIL_LIBRARY
 
 #ifdef USE_DEVIL_LIBRARY
@@ -99,7 +103,7 @@ bool HeightGenerator::generate(const unsigned int seed, const int resolution,
 	height_map_param_t hmp(resolution, gain, octaves, scale);
 	m_generatedParam = hmp;
 
-	Simplex::seed(seed);
+	
 
 	m_generatedPixels = hmp.resolution*hmp.resolution;
 
@@ -140,7 +144,7 @@ bool HeightGenerator::generate(const unsigned int seed, const int resolution,
 				if (static_cast<const int>(heightMapIndexes.size()) >= indexesPerCPU)
 					break;
 			}
-			threadSplits.push_back(std::unique_ptr<thread_info>(new thread_info(this, m_generatedData, hmp, std::move(heightMapIndexes))));
+			threadSplits.push_back(std::unique_ptr<thread_info>(new thread_info(this, m_generatedData, hmp, seed, std::move(heightMapIndexes))));
 		}
 		while (true) {
 			size_t completed = 0;
@@ -170,7 +174,7 @@ bool HeightGenerator::generate(const unsigned int seed, const int resolution,
 				heightMapIndexes.push_back(std::pair<const int, const int>(x, y));
 			}
 		}
-		generationHeight(hmp, m_generatedData, heightMapIndexes);
+		generationHeight(seed, hmp, m_generatedData, heightMapIndexes);
 	}
 	int errors = 0;
 
@@ -210,6 +214,69 @@ bool HeightGenerator::generate(const unsigned int seed, const int resolution,
 	return !errors;
 }
 
+bool HeightGenerator::saveGeneratedData(const std::string &savePath)
+{
+    if (m_generatedData) {
+        FILE *fp = fopen(savePath.c_str(), "wb");
+        if (fp) {
+            unsigned int size = 0;
+            int errors = fwrite(&HEIGHT_DATA_FILE_VERSION, sizeof(HEIGHT_DATA_FILE_VERSION), 1, fp) != 1;
+            if (!errors) errors += fwrite(&HEIGHT_DATA_FILE_MAGIC, sizeof(HEIGHT_DATA_FILE_MAGIC), 1, fp) != 1;
+            if (!errors) errors += fwrite(&size, sizeof(size), 1, fp) != 1;
+            if (!errors) errors += fwrite(&m_generatedParam.resolution, sizeof(m_generatedParam.resolution), 1, fp) != 1;
+            if (!errors) errors += fwrite(&m_generatedParam.gain, sizeof(m_generatedParam.gain), 1, fp) != 1;
+            if (!errors) errors += fwrite(&m_generatedParam.octaves, sizeof(m_generatedParam.octaves), 1, fp) != 1;
+            if (!errors) errors += fwrite(&m_generatedSeedUsed, sizeof(m_generatedSeedUsed), 1, fp) != 1;
+            if (!errors) errors += fwrite(m_generatedData, (m_generatedParam.resolution * m_generatedParam.resolution) * 2, 1, fp) != 1;
+            // Update size head
+            if (!errors) {
+                size = ftell(fp);
+                fseek(fp, sizeof(HEIGHT_DATA_FILE_VERSION) + sizeof(HEIGHT_DATA_FILE_MAGIC), SEEK_SET);
+                errors += fwrite(&size, sizeof(size), 1, fp) != 1;
+            }
+            fclose(fp);
+            return !errors;
+        }
+    }
+    return false;
+}
+
+bool HeightGenerator::loadGeneratedData(const std::string &loadPath)
+{
+    bool ret = false;
+    freeGeneratedData();
+    
+    FILE *fp = fopen(loadPath.c_str(), "rb");
+    if (fp) {
+        fseek(fp, 0, SEEK_END);
+        const auto fSize = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+
+        if (fSize > sizeof(HEIGHT_DATA_FILE_VERSION) + sizeof(HEIGHT_DATA_FILE_MAGIC) + sizeof(unsigned int)) {
+            unsigned char version;
+            fread(&version, sizeof(version), 1, fp);
+            char magic[3];
+            fread(&magic[0], sizeof(magic), 1, fp);
+            if (memcmp(magic, HEIGHT_DATA_FILE_MAGIC, sizeof(HEIGHT_DATA_FILE_MAGIC)) == 0) {
+                unsigned int savedSize;
+                fread(&savedSize, sizeof(savedSize), 1, fp);
+                if (savedSize == fSize) {
+                    fread(&m_generatedParam.resolution, sizeof(m_generatedParam.resolution), 1, fp);
+                    fread(&m_generatedParam.gain, sizeof(m_generatedParam.gain), 1, fp);
+                    fread(&m_generatedParam.octaves, sizeof(m_generatedParam.octaves), 1, fp);
+                    fread(&m_generatedSeedUsed, sizeof(m_generatedSeedUsed), 1, fp);
+
+                    m_generatedData = new unsigned short[m_generatedParam.resolution * m_generatedParam.resolution];
+                    fread(m_generatedData, (m_generatedParam.resolution * m_generatedParam.resolution) * 2, 1, fp);
+                    ret = true;
+                }
+            }
+        }
+        fclose(fp);
+    }
+    return ret;
+}
+
 void HeightGenerator::freeGeneratedData()
 {
 	if (m_generatedData) {
@@ -221,21 +288,31 @@ void HeightGenerator::freeGeneratedData()
     m_generatedSeedUsed = 0;
 }
 
-void HeightGenerator::generationHeight(const HeightGenerator::height_map_param_t &hmp, UInt16Type *data, const std::vector<std::pair<const int, const int>> &workSet)
+void HeightGenerator::generationHeight(const uint32_t seed, 
+                                       const HeightGenerator::height_map_param_t &hmp,
+                                       UInt16Type *data, 
+                                       const std::vector<std::pair<const int, const int>> &workSet)
 {
-	for (const auto & i : workSet) {
-		glm::vec2 position = (glm::vec2(i.first, i.second)) * hmp.scale;
-        float n = Simplex::iqMatfBmEx(position, (uint8_t)hmp.octaves, glm::mat2(2.3f, -1.5f, 1.5f, 2.3f), hmp.gain);
-        n *= Simplex::ridgedMF(position * glm::vec2(0.75f), 0.95f, hmp.octaves, 1.5f, 0.33f);
-        n -= Simplex::worleyfBm(position, 12, 2.0f, hmp.gain);
+    Simplex::seed(seed);
 
-        // World move "down" 0.30
-		data[i.first + i.second*hmp.resolution] = (UInt16Type)(glm::clamp(double(n* 0.5f + 0.20), 0.0, 1.0) * 65535.0);
+	for (const auto & i : workSet) {
+		glm::vec2 position = (glm::vec2((float)i.first, (float)i.second)) * hmp.scale;
+        // World move "down" 0.50 to create water plane 
+        float n = Simplex::iqMatfBmEx(position, (uint8_t)hmp.octaves, glm::mat2(2.3f, -1.5f, 1.5f, 2.3f), hmp.gain) * 0.5f ;
+       
+        n *= Simplex::ridgedMF(position, 1.0f, hmp.octaves, 2.0f, hmp.gain+0.1f) * 0.5f + 0.5f;
+        n *= Simplex::worleyfBm(position, hmp.octaves, 2.0f, hmp.gain + 0.2f) * 0.5f + 0.5f;
+        
+		data[i.first + i.second*hmp.resolution] = (UInt16Type)(glm::clamp(double(n), 0.0, 1.0) * 65535.0);
 	}
+
 }
 
-void HeightGenerator::generationHeightMapMultiThread(HeightGenerator::thread_info *threadInfo, UInt16Type *data, const std::vector<std::pair<const int, const int>> &workSet)
+void HeightGenerator::generationHeightMapMultiThread(HeightGenerator::thread_info *threadInfo, 
+                                                     UInt16Type *data, 
+                                                     const std::vector<std::pair<const int, const int>> &workSet)
 {
-    generationHeight(threadInfo->params, data, workSet);
+    
+    generationHeight(threadInfo->seed, threadInfo->params, data, workSet);
 	threadInfo->threadState = ThreadStateProcessingDone;
 }
